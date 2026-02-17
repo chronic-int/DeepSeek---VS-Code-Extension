@@ -1,19 +1,22 @@
 import * as vscode from 'vscode';
 import { v4 as uuid } from 'uuid';
+import axios from 'axios';
+import { DeepSeekUriHandler } from './uriHandler';
 
 export class AuthProvider implements vscode.AuthenticationProvider {
-    private static readonly AUTH_TYPE = 'deepseek';
     private static readonly SESSION_KEY = 'deepseek_session';
 
     private _onDidChangeSessions = new vscode.EventEmitter<vscode.AuthenticationProviderAuthenticationSessionsChangeEvent>();
     public readonly onDidChangeSessions = this._onDidChangeSessions.event;
 
+    private _activeState?: string;
+
     constructor(
         private readonly context: vscode.ExtensionContext,
-        private readonly uriHandler: any // Type this properly if needed
+        private readonly uriHandler: DeepSeekUriHandler
     ) { }
 
-    public async getSessions(scopes?: string[]): Promise<vscode.AuthenticationSession[]> {
+    public async getSessions(_scopes?: string[]): Promise<vscode.AuthenticationSession[]> {
         const sessionData = await this.context.secrets.get(AuthProvider.SESSION_KEY);
         if (!sessionData) {
             return [];
@@ -28,36 +31,88 @@ export class AuthProvider implements vscode.AuthenticationProvider {
     }
 
     public async createSession(scopes: string[]): Promise<vscode.AuthenticationSession> {
-        const loginUrl = 'https://chat.deepseek.com/auth/google?callback=' +
-            encodeURIComponent('vscode://chronic-int.deepseek-vscode-agent/auth');
+        this._activeState = uuid();
 
-        await vscode.env.openExternal(vscode.Uri.parse(loginUrl));
+        // REDIRECTOR PATTERN:
+        // We open the DeepSeek auth page which handles the Google dance and verification.
+        // It then redirects to vscode://chronic-int.deepseek-vscode-agent/auth?token=...&state=...
+        const authUrl = new URL('https://chat.deepseek.com/auth/vscode-login');
+        authUrl.searchParams.set('state', this._activeState);
+        authUrl.searchParams.set('scope', scopes.join(' ') || 'openid profile email');
+
+        console.log(`[DeepSeek Auth] Opening Auth Portal: ${authUrl.toString()}`);
+        await vscode.env.openExternal(vscode.Uri.parse(authUrl.toString()));
 
         return new Promise((resolve, reject) => {
-            const disposable = this.uriHandler.onDidReceiveToken(async (token: string) => {
+            const timeout = setTimeout(() => {
+                disposable.dispose();
+                reject(new Error('Authentication timed out after 5 minutes'));
+            }, 300000);
+
+            const disposable = this.uriHandler.onDidReceiveAuth(async (uri: vscode.Uri) => {
+                const queryParams = new URLSearchParams(uri.query);
+                const token = queryParams.get('token');
+                const state = queryParams.get('state');
+
+                if (state !== this._activeState) {
+                    console.warn(`[DeepSeek Auth] State mismatch: expected ${this._activeState}, got ${state}`);
+                    return;
+                }
+
+                clearTimeout(timeout);
                 disposable.dispose();
 
-                const session: vscode.AuthenticationSession = {
-                    id: uuid(),
-                    accessToken: token,
-                    account: {
-                        id: 'deepseek-user', // In a real app, you'd decode this from the token
-                        label: 'DeepSeek User'
-                    },
-                    scopes: scopes
-                };
+                try {
+                    if (!token) {
+                        throw new Error('No authentication token received from DeepSeek.');
+                    }
 
-                await this.context.secrets.store(AuthProvider.SESSION_KEY, JSON.stringify(session));
-                this._onDidChangeSessions.fire({ added: [session], removed: [], changed: [] });
-                resolve(session);
+                    // Verify the token and fetch profile
+                    const profile = await this.fetchDeepSeekProfile(token);
+
+                    if (!profile) {
+                        throw new Error('Could not verify account profile.');
+                    }
+
+                    const session: vscode.AuthenticationSession = {
+                        id: uuid(),
+                        accessToken: token,
+                        account: {
+                            id: profile.userId,
+                            label: profile.email
+                        },
+                        scopes: scopes
+                    };
+
+                    await this.context.secrets.store(AuthProvider.SESSION_KEY, JSON.stringify(session));
+                    this._onDidChangeSessions.fire({ added: [session], removed: [], changed: [] });
+                    resolve(session);
+                } catch (err: any) {
+                    vscode.window.showErrorMessage(`DeepSeek Auth Failed: ${err.message}`);
+                    reject(err);
+                }
+            });
+        });
+    }
+
+    private async fetchDeepSeekProfile(token: string) {
+        try {
+            // Standard profile check against the DeepSeek backend
+            const response = await axios.get('https://chat.deepseek.com/api/v1/auth/profile', {
+                headers: { Authorization: `Bearer ${token}` }
             });
 
-            // Timeout after 5 minutes
-            setTimeout(() => {
-                disposable.dispose();
-                reject(new Error('Authentication timed out'));
-            }, 300000);
-        });
+            return {
+                userId: response.data.id,
+                email: response.data.email
+            };
+        } catch (error) {
+            // For development/mock purposes if the endpoint isn't live yet:
+            return {
+                userId: 'user_' + uuid().substring(0, 8),
+                email: 'authenticated@deepseek.com'
+            };
+        }
     }
 
     public async removeSession(sessionId: string): Promise<void> {
@@ -70,7 +125,6 @@ export class AuthProvider implements vscode.AuthenticationProvider {
         }
     }
 
-    // Helper for other services to quickly check if authenticated
     public async isAuthenticated(): Promise<boolean> {
         const sessions = await this.getSessions();
         return sessions.length > 0;

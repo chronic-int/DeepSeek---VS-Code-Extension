@@ -32,7 +32,13 @@
                     "name": "Chat"
                 }
             ]
-        }
+        },
+        "authentication": [
+            {
+                "label": "DeepSeek",
+                "id": "deepseek"
+            }
+        ]
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",

@@ -5,11 +5,16 @@ import { DeepSeekService } from './services/deepseekService';
 import { WorkspaceSnapshotService } from './services/workspaceSnapshotService';
 import { AgentController } from './agent/agentController';
 import { AuthProvider } from './auth/authProvider';
+import { DeepSeekUriHandler } from './auth/uriHandler';
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('DeepSeek VS Code Agent is now active!');
 
-    const authProvider = new AuthProvider(context);
+    const uriHandler = new DeepSeekUriHandler();
+    context.subscriptions.push(vscode.window.registerUriHandler(uriHandler));
+
+    const authProvider = new AuthProvider(context, uriHandler);
+    context.subscriptions.push(vscode.authentication.registerAuthenticationProvider('deepseek', 'DeepSeek', authProvider));
 
     const deepseekService = new DeepSeekService(authProvider);
     await deepseekService.initialize();
@@ -19,14 +24,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
     const sidebarProvider = new SidebarProvider(context.extensionUri, agentController, authProvider);
     agentController.setSidebarProvider(sidebarProvider);
-
-    if (!await authProvider.isAuthenticated()) {
-        vscode.window.showInformationMessage('DeepSeek: Please sign in to use the agent.', 'Sign in').then(selection => {
-            if (selection === 'Sign in') {
-                authProvider.loginWithGoogle();
-            }
-        });
-    }
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(

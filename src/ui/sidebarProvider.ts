@@ -13,8 +13,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider, ISidebarProv
         private readonly _agentController: AgentController,
         private readonly _authProvider: AuthProvider
     ) {
-        this._authProvider.onDidAuthStateChange(() => {
-            if (this._view) {
+        vscode.authentication.onDidChangeSessions(e => {
+            if (e.provider.id === 'deepseek' && this._view) {
                 this._updateWebview(this._view.webview);
             }
         });
@@ -44,20 +44,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider, ISidebarProv
                     break;
                 }
                 case 'triggerLogin': {
-                    await this._authProvider.loginWithGoogle();
-                    break;
-                }
-                case 'login': {
-                    await this._authProvider.login(data.value);
-                    if (this._view) {
-                        this._updateWebview(this._view.webview);
+                    try {
+                        const session = await vscode.authentication.getSession('deepseek', ['openid', 'profile', 'email'], { createIfNone: true });
+                        if (session) {
+                            // UI will auto-refresh via the onDidChangeSessions listener
+                            vscode.window.showInformationMessage(`Signed in as ${session.account.label}`);
+                        }
+                    } catch (err: any) {
+                        vscode.window.showErrorMessage(`Login failed: ${err.message}`);
                     }
                     break;
                 }
                 case 'logout': {
-                    await this._authProvider.logout();
-                    if (this._view) {
-                        this._updateWebview(this._view.webview);
+                    const session = await vscode.authentication.getSession('deepseek', [], { createIfNone: false });
+                    if (session) {
+                        await this._authProvider.removeSession(session.id);
+                        vscode.window.showInformationMessage('Successfully logged out.');
                     }
                     break;
                 }
@@ -93,12 +95,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider, ISidebarProv
                 <body>
                     <div class="chat-container">
                         <h2>DeepSeek Agent</h2>
-                        <p>Please log in with your API Key to continue.</p>
+                        <p>Sign in with your Google account to access DeepSeek.</p>
                         <div class="input-area" style="text-align: center;">
                             <button id="loginBtn" style="width: 100%; padding: 12px; font-weight: 600;">Sign in with Google</button>
                         </div>
                         <p class="text-dim" style="font-size: 11px; margin-top: 20px;">
-                            We use secure Google OAuth to sync your chat history and preferences.
+                            The extension will automatically unlock once the sign-in is complete.
                         </p>
                     </div>
                     <script>

@@ -1,16 +1,13 @@
 import * as vscode from 'vscode';
 
 export class DeepSeekUriHandler implements vscode.UriHandler {
-    private _onDidReceiveToken = new vscode.EventEmitter<string>();
-    public readonly onDidReceiveToken = this._onDidReceiveToken.event;
+    private _onDidReceiveAuth = new vscode.EventEmitter<vscode.Uri>();
+    public readonly onDidReceiveAuth = this._onDidReceiveAuth.event;
 
     public handleUri(uri: vscode.Uri): void {
+        console.log(`[DeepSeek Auth] Captured URI: ${uri.toString()}`);
         if (uri.path === '/auth') {
-            const queryParams = new URLSearchParams(uri.query);
-            const token = queryParams.get('token');
-            if (token) {
-                this._onDidReceiveToken.fire(token);
-            }
+            this._onDidReceiveAuth.fire(uri);
         }
     }
 }

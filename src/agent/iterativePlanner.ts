@@ -12,6 +12,12 @@ export class IterativePlanner {
     ) { }
 
     public async planNextStep(): Promise<AgentStep | null> {
+        // Strict Auth Enforcement
+        const isAuthenticated = await this.deepseekService.hasKey();
+        if (!isAuthenticated) {
+            throw new Error('Authentication required to use DeepSeek Agent.');
+        }
+
         // 1. Refresh snapshot
         const snapshot = await this.snapshotService.getSnapshot();
         this.stateManager.updateWorkspaceSummary(snapshot);
