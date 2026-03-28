@@ -2,6 +2,7 @@ import axios from 'axios';
 import { IterativePlanAction } from '../agent/agentTypes';
 import { ContextBuilder } from './contextBuilder';
 import { AuthProvider } from '../auth/authProvider';
+import { buildAgentError } from '../agent/agentErrors';
 
 export class DeepSeekService {
     private readonly apiUrl = 'https://api.deepseek.com/v1/chat/completions';
@@ -24,7 +25,12 @@ export class DeepSeekService {
     public async generateNextStep(state: any): Promise<IterativePlanAction> {
         const apiKey = await this.authProvider.getToken();
         if (!apiKey) {
-            throw new Error('DeepSeek API Key not found. Please log in.');
+            throw buildAgentError(
+                'authentication',
+                'AUTH_TOKEN_MISSING',
+                'DeepSeek API Key not found.',
+                'Faça login novamente.'
+            );
         }
 
         const systemPrompt = `You are a VS Code autonomous coding agent. 
@@ -62,7 +68,46 @@ Do not include any other text.`;
             return JSON.parse(content) as IterativePlanAction;
         } catch (error: any) {
             console.error('DeepSeek API Error:', error.response?.data || error.message);
-            throw new Error(`DeepSeek API failed: ${error.message}`);
+            const statusCode: number | undefined = error.response?.status;
+            const cause = error.response?.data?.error?.message || error.message;
+
+            if (statusCode === 401) {
+                throw buildAgentError(
+                    'authentication',
+                    'DEEPSEEK_HTTP_401',
+                    'Falha de autenticação com a API da DeepSeek.',
+                    'Faça login novamente.',
+                    { statusCode, cause }
+                );
+            }
+
+            if (statusCode === 429) {
+                throw buildAgentError(
+                    'rate_limit',
+                    'DEEPSEEK_HTTP_429',
+                    'Limite de requisições da API da DeepSeek atingido.',
+                    'Aguarde alguns instantes e tente novamente.',
+                    { statusCode, cause }
+                );
+            }
+
+            if (statusCode && statusCode >= 500) {
+                throw buildAgentError(
+                    'api',
+                    `DEEPSEEK_HTTP_${statusCode}`,
+                    'A DeepSeek está indisponível no momento.',
+                    'Tente novamente em alguns minutos.',
+                    { statusCode, cause }
+                );
+            }
+
+            throw buildAgentError(
+                'planning',
+                'DEEPSEEK_REQUEST_FAILED',
+                'Não foi possível planejar o próximo passo.',
+                'Tente novamente.',
+                { statusCode, cause }
+            );
         }
     }
 }

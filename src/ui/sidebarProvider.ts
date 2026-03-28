@@ -135,9 +135,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider, ISidebarProv
 					</div>
 				</div>
 				<script>
-					const vscode = acquireVsCodeApi();
+                    const vscode = acquireVsCodeApi();
                     const messagesContainer = document.getElementById('messages');
                     const input = document.getElementById('chatInput');
+                    const recoveryByCategory = {
+                        authentication: 'Faça login novamente.',
+                        execution: 'Aprove o passo e tente novamente.',
+                        planning: 'Tente novamente.',
+                        rate_limit: 'Aguarde alguns instantes e tente novamente.',
+                        api: 'Tente novamente em alguns minutos.',
+                        unknown: 'Tente novamente.'
+                    };
 
                     const addMessage = (data, type) => {
                         const div = document.createElement('div');
@@ -180,6 +188,23 @@ export class SidebarProvider implements vscode.WebviewViewProvider, ISidebarProv
 							case 'addAgentResponse':
 								addMessage(message.value, 'agent');
 								break;
+                            case 'agentRecovery': {
+                                const value = message.value || {};
+                                const actionText =
+                                    value.recommendedAction ||
+                                    recoveryByCategory[value.category] ||
+                                    recoveryByCategory.unknown;
+                                addMessage(
+                                    '⚠️ ' +
+                                    (value.message || 'Ocorreu um erro.') +
+                                    ' Código: ' +
+                                    (value.code || 'UNKNOWN') +
+                                    '. Recuperação: ' +
+                                    actionText,
+                                    'agent'
+                                );
+                                break;
+                            }
 						}
 					});
 
