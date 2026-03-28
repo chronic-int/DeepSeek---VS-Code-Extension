@@ -13,6 +13,23 @@ export interface ISidebarProvider {
     postMessage(message: any): void;
 }
 
+export type AgentErrorCategory =
+    | 'authentication'
+    | 'planning'
+    | 'execution'
+    | 'rate_limit'
+    | 'api'
+    | 'unknown';
+
+export interface AgentErrorDetails {
+    category: AgentErrorCategory;
+    code: string;
+    message: string;
+    recommendedAction: string;
+    cause?: string;
+    statusCode?: number;
+}
+
 export interface AgentStep {
     id: string;
     type: StepType;
@@ -21,7 +38,7 @@ export interface AgentStep {
     risk: RiskLevel;
     status: 'pending' | 'approved' | 'executing' | 'completed' | 'failed' | 'skipped';
     result?: string;
-    error?: string;
+    error?: AgentErrorDetails;
 }
 
 export interface WorkspaceSummary {

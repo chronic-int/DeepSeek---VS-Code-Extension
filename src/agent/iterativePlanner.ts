@@ -3,6 +3,7 @@ import { DeepSeekService } from '../services/deepseekService';
 import { WorkspaceSnapshotService } from '../services/workspaceSnapshotService';
 import { AgentStep, IterativePlanAction } from './agentTypes';
 import { v4 as uuidv4 } from 'uuid';
+import { buildAgentError } from './agentErrors';
 
 export class IterativePlanner {
     constructor(
@@ -15,7 +16,12 @@ export class IterativePlanner {
         // Strict Auth Enforcement
         const isAuthenticated = await this.deepseekService.hasKey();
         if (!isAuthenticated) {
-            throw new Error('Authentication required to use DeepSeek Agent.');
+            throw buildAgentError(
+                'authentication',
+                'AUTH_REQUIRED',
+                'Authentication required to use DeepSeek Agent.',
+                'Faça login novamente.'
+            );
         }
 
         // 1. Refresh snapshot
